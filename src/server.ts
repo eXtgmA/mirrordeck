@@ -42,8 +42,10 @@ function adminMeta(s: Session) {
   return { ...publicMeta(s), key: s.key, viewers: viewerCounts.get(s.id) ?? 0 };
 }
 
+const NO_CACHE = { "cache-control": "no-cache" };
+
 function page(name: string): Response {
-  return new Response(Bun.file(join(PUBLIC_DIR, name)));
+  return new Response(Bun.file(join(PUBLIC_DIR, name)), { headers: NO_CACHE });
 }
 
 function extractTitle(html: string, fallback: string): string {
@@ -51,8 +53,11 @@ function extractTitle(html: string, fallback: string): string {
   return m?.[1]?.trim() || fallback;
 }
 
+// Inlined (not <script src>) so a cached old bridge can never be combined with a newer app.
+const BRIDGE_JS = await Bun.file(join(PUBLIC_DIR, "bridge.js")).text();
+
 function injectBridge(html: string, role: string): string {
-  const tag = `<script src="/bridge.js" data-role="${role}"></script>`;
+  const tag = `<script data-role="${role}">${BRIDGE_JS}</script>`;
   // Inject as early as possible so the bridge's capture listeners run before the deck's own.
   const head = /<head[^>]*>/i.exec(html);
   if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);
@@ -139,7 +144,7 @@ const server = Bun.serve({
     // Static assets (flat directory, no traversal).
     if (/^\/[\w.-]+\.(js|css|svg|ico)$/.test(path)) {
       const file = Bun.file(join(PUBLIC_DIR, path.slice(1)));
-      if (await file.exists()) return new Response(file);
+      if (await file.exists()) return new Response(file, { headers: NO_CACHE });
     }
     return new Response("Not found", { status: 404 });
   },
@@ -164,7 +169,7 @@ const server = Bun.serve({
       if (ws.data.role !== "presenter") return; // viewers are read-only
       const session = store.get(ws.data.id);
       if (!session || typeof raw !== "string") return;
-      let msg: { type?: string; state?: unknown; input?: unknown };
+      let msg: { type?: string; state?: unknown; input?: unknown; data?: unknown };
       try {
         msg = JSON.parse(raw);
       } catch {
@@ -178,6 +183,12 @@ const server = Bun.serve({
         case "input":
           store.addInput(session, msg.input);
           server.publish(viewerTopic(session.id), JSON.stringify({ type: "input", input: msg.input }));
+          break;
+        case "pointer":
+        case "hover":
+        case "click":
+          // Transient presenter gestures: relayed live, never stored.
+          server.publish(viewerTopic(session.id), JSON.stringify({ type: msg.type, data: msg.data }));
           break;
         case "reset":
           store.resetInputs(session);
