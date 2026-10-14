@@ -33,12 +33,12 @@
 
   for (const type of INPUT_EVENTS) {
     window.addEventListener(type, (e) => {
-      if (replaying) return;
       const zone = role !== "preview" && interactiveOf(e);
       if (zone) {
         zone.addEventListener(type, stopAtBoundary, { once: true });
         return;
       }
+      if (replaying) return;
       if (locked) {
         e.stopImmediatePropagation();
         e.preventDefault();
@@ -102,6 +102,137 @@
     }
   };
 
+  // ---------- presenter mirroring: laser pointer, hover, shared clicks ----------
+  // Elements are addressed by their child-index path from <body>; every client runs the same deck markup.
+  // (Not from <html>: the bridge adds role-specific nodes there.)
+  const pathOf = (el) => {
+    if (!document.body.contains(el)) return null;
+    const path = [];
+    for (let n = el; n !== document.body; n = n.parentElement) {
+      if (!n.parentElement) return null;
+      path.unshift(Array.prototype.indexOf.call(n.parentElement.children, n));
+    }
+    return path;
+  };
+  const elementAt = (path) => {
+    let n = document.body;
+    for (const i of path || []) { n = n.children[i]; if (!n) return null; }
+    return n;
+  };
+  // Pointer coordinates are relative to the visible slide so they survive different aspect ratios.
+  const pointerFrame = () => {
+    const slide = document.querySelector(".slide.active");
+    return slide ? slide.getBoundingClientRect() : { left: 0, top: 0, width: innerWidth, height: innerHeight };
+  };
+
+  let dot = null;
+  const showPointer = (p) => {
+    if (!dot) {
+      dot = document.createElement("div");
+      dot.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;width:22px;height:22px;margin:-11px 0 0 -11px;" +
+        "border-radius:50%;background:rgba(255,30,60,.95);box-shadow:0 0 14px 6px rgba(255,30,60,.55);" +
+        "transition:left .06s linear,top .06s linear;display:none";
+      document.documentElement.append(dot);
+    }
+    if (!p || p.hidden) { dot.style.display = "none"; return; }
+    const r = pointerFrame();
+    dot.style.left = `${r.left + p.x * r.width}px`;
+    dot.style.top = `${r.top + p.y * r.height}px`;
+    dot.style.display = "block";
+  };
+
+  // :hover cannot be triggered from script, so every :hover rule is duplicated as a .md-hover rule.
+  const hoverCss = (rules) => {
+    let out = "";
+    for (const r of rules) {
+      if (r instanceof CSSStyleRule && r.selectorText.includes(":hover")) {
+        out += `${r.selectorText.replace(/:hover\b/g, ".md-hover")}{${r.style.cssText}}\n`;
+      } else if (r instanceof CSSMediaRule || r instanceof CSSSupportsRule) {
+        const inner = hoverCss(r.cssRules);
+        if (inner) out += `@${r instanceof CSSMediaRule ? "media" : "supports"} ${r.conditionText}{${inner}}\n`;
+      }
+    }
+    return out;
+  };
+  const installHoverMirror = () => {
+    let css = "";
+    for (const sheet of document.styleSheets) {
+      try { css += hoverCss(sheet.cssRules); } catch { /* cross-origin stylesheet: rules are not readable */ }
+    }
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.documentElement.append(style);
+  };
+
+  let hoverChain = [];
+  const setHover = (data) => {
+    const target = data && elementAt(data.path);
+    const previous = hoverChain[0];
+    if (target === previous) return;
+    for (const n of hoverChain) n.classList.remove("md-hover");
+    hoverChain = [];
+    for (let n = target; n && n.nodeType === 1; n = n.parentElement) {
+      n.classList.add("md-hover");
+      hoverChain.push(n);
+    }
+    replaying = true;
+    try {
+      previous?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: target }));
+      target?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: previous }));
+    } finally {
+      replaying = false;
+    }
+  };
+
+  const mirrorClick = (data) => {
+    const target = data && elementAt(data.path);
+    if (!target) return;
+    replaying = true;
+    try {
+      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    } finally {
+      replaying = false;
+    }
+  };
+
+  let lastHover = null;
+  const startPresenterMirroring = () => {
+    let lastMove = 0;
+    let trailing = null;
+    window.addEventListener("mousemove", (e) => {
+      const now = Date.now();
+      const send = () => {
+        lastMove = Date.now();
+        const r = pointerFrame();
+        post({ type: "pointer", data: { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height } });
+      };
+      clearTimeout(trailing);
+      if (now - lastMove >= 33) send();
+      else trailing = setTimeout(send, 33 - (now - lastMove));
+    }, { passive: true });
+    document.addEventListener("mouseout", (e) => {
+      if (e.relatedTarget) return; // still inside the deck
+      lastHover = null;
+      clearTimeout(trailing);
+      post({ type: "pointer", data: { hidden: true } });
+      post({ type: "hover", data: null });
+    });
+    // mousemove as well as mouseover: re-entering the iframe onto the same element fires no mouseover.
+    const reportHover = (e) => {
+      if (replaying || e.target === lastHover || !(e.target instanceof Element)) return;
+      lastHover = e.target;
+      const path = pathOf(e.target);
+      if (path) post({ type: "hover", data: { path } });
+    };
+    window.addEventListener("mouseover", reportHover, true);
+    window.addEventListener("mousemove", reportHover, { capture: true, passive: true });
+    window.addEventListener("click", (e) => {
+      if (replaying || !(e.target instanceof Element) || !e.target.closest('[data-interactive="shared"]')) return;
+      const path = pathOf(e.target);
+      if (path) post({ type: "click", data: { path } });
+    }, true);
+  };
+
   // ---------- applying remote state ----------
   const apply = (state) => {
     if (!state) return;
@@ -130,6 +261,12 @@
       case "next": next(); break;
       case "prev": prev(); break;
       case "goto": if (mode === "deck") window.deck.goTo(msg.slide, msg.step ?? 0); break;
+      case "pointer":
+        showPointer(msg.data);
+        if (msg.data?.hidden) lastHover = null; // pointer left the deck: next hover must be reported again
+        break;
+      case "hover": if (role === "viewer") setHover(msg.data); break;
+      case "click": if (role === "viewer") mirrorClick(msg.data); break;
     }
   });
 
@@ -173,7 +310,11 @@
       window.deck.next ||= () => {};
       window.deck.prev ||= () => {};
     }
-    if (role === "presenter") startPresenterReporting();
+    if (role === "presenter") {
+      startPresenterReporting();
+      startPresenterMirroring();
+    }
+    if (role === "viewer") installHoverMirror();
     post({ type: "ready", mode, total: mode === "deck" ? window.deck.total ?? null : null, state: currentState() });
     if (role === "presenter") report();
   };

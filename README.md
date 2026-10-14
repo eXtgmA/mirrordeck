@@ -33,6 +33,8 @@ Die Prompt-Vorlage in [PROMPT.md](PROMPT.md) an den LLM-Prompt anhängen. Refere
 
 **Interaktive Elemente:** Mit `data-interactive` markierte Elemente können auch Zuschauer bedienen (z. B. Quiz, `<details>`, Links in neuem Tab). Die Interaktion bleibt lokal beim jeweiligen Zuschauer und löst keine Navigation aus; Folie und Schritt bleiben synchron.
 
+**Zeigen:** Im Präsentator-Panel gibt es einen Laserpointer (`L`): deine Mausposition erscheint bei allen Zuschauern als roter Punkt (relativ zur Folie, daher unabhängig vom Seitenverhältnis). Mit „Hover & Klicks spiegeln“ sehen Zuschauer deine CSS-`:hover`-Effekte, und Klicks auf `data-interactive="shared"`-Elemente werden bei allen ausgelöst. Beides wird live weitergereicht, nicht gespeichert – Nachzügler sehen es erst ab der nächsten Geste.
+
 **Sync-Modi** (automatisch erkannt):
 - **mirrordeck-Format** (`window.deck` vorhanden): Folie + Schritt werden synchronisiert. Zuverlässig, inkl. Vorschau und Nachzüglern.
 - **Fallback** (beliebige HTML): URL-Raute, Scrollposition und Navigationstasten werden übertragen und bei Zuschauern nachgespielt. Erzwingt 16:9, keine Vorschau. Ein Neuladen der Präsentator-Seite setzt alle Zuschauer zurück.
@@ -46,12 +48,10 @@ Die Prompt-Vorlage in [PROMPT.md](PROMPT.md) an den LLM-Prompt anhängen. Refere
 
 ## Später (TODO)
 
-- Laserpointer / Mauszeiger-Sync
 - Sprechernotizen (`<aside class="notes">`)
 - Mehrere Nutzer / Login
 - Ablaufdatum für Sessions, Passwortschutz für Zuschauer-Links
 - Video-Sync
-- `data-interactive="shared"`: Klicks des Präsentators in interaktiven Elementen an alle übertragen
 - Horizontale Skalierung (Redis Pub/Sub)
 
 ## CI

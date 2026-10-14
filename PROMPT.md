@@ -30,5 +30,7 @@ Erstelle die Präsentation als **eine einzige, eigenständige HTML-Datei** und h
     - Interaktionen darin wirken nur lokal und dürfen **nie** `goTo/next/prev` auslösen oder Folie/Schritt ändern.
     - Klicks und Tasten darin erreichen die globale Navigation nicht (mirrordeck stoppt sie am Element) – trotzdem keine Navigation darauf aufbauen.
     - Links mit `target="_blank" rel="noopener"`. Keine `<form>`-Submits (Eingabefelder sind ok, Auswertung per JavaScript).
+    - `data-interactive="shared"`: Klicks des Präsentators auf dieses Element werden bei allen Zuschauern ausgelöst (z. B. Erklär-Popups, Aufklapper). Zuschauer können trotzdem selbst klicken. Die Klick-Handler müssen deshalb ohne echte Mauskoordinaten auskommen.
+12. **Hover-Effekte** nur per CSS `:hover` umsetzen (keine JS-Hover-Logik): mirrordeck spiegelt den Hover des Präsentators zu den Zuschauern, indem es `:hover`-Regeln dupliziert.
 
 Eine Referenzimplementierung liegt in `examples/beispiel.html`.

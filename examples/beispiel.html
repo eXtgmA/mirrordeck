@@ -23,6 +23,8 @@
   .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22vw), 1fr)); gap: 3vmin; }
   .box { background: #fff; border: 2px solid #eee; border-radius: 2vmin; padding: 3vmin; }
   .progress { position: fixed; left: 0; bottom: 0; height: .6vh; background: var(--accent); transition: width .3s; }
+  .box { transition: transform .2s, box-shadow .2s; }
+  .box:hover { transform: translateY(-1vh); box-shadow: 0 1.5vh 3vh rgba(226,0,116,.25); }
   .quiz button { font: inherit; font-size: clamp(14px, 2.6vmin, 40px); padding: .3em 1em; margin-right: .5em;
     border: 2px solid var(--accent); background: #fff; border-radius: 1vmin; }
   summary { font-size: clamp(16px, 3.2vmin, 48px); }
@@ -56,9 +58,9 @@
   <h2>Selbst ausprobieren</h2>
   <p>Diese Elemente können auch Zuschauer anklicken – jeder für sich:</p>
   <div class="cols">
-    <details class="box" data-interactive>
+    <details class="box" data-interactive="shared">
       <summary><strong>Details aufklappen</strong></summary>
-      <p>Nur bei dir sichtbar – die Folie bleibt synchron.</p>
+      <p>Klickt der Präsentator, klappt es bei allen auf.</p>
     </details>
     <div class="box quiz" data-interactive>
       <p><strong>Quiz:</strong> Wie viele Links gibt es?</p>

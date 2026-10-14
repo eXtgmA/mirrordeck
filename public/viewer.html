@@ -112,6 +112,11 @@
           latest.inputs.push(msg.input);
           if (bridgeReady) deck.send({ type: "input", input: msg.input });
           break;
+        case "pointer":
+        case "hover":
+        case "click":
+          if (bridgeReady) deck.send({ type: msg.type, data: msg.data });
+          break;
         case "reload":
           latest = { state: null, inputs: [] };
           bridgeReady = false;
