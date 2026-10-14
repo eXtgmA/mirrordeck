@@ -36,12 +36,14 @@ export function mountDeck(container, { id, role, interactive, onMessage }) {
     Object.assign(iframe.style, { width: `${BASE_W}px`, height: `${BASE_H}px`, transform: `scale(${scale})` });
     Object.assign(stage.style, { width: `${sw}px`, height: `${sh}px`, left: `${(w - sw) / 2}px`, top: `${(h - sh) / 2}px` });
   };
-  new ResizeObserver(layout).observe(container);
+  const resizeObserver = new ResizeObserver(layout);
+  resizeObserver.observe(container);
 
-  window.addEventListener("message", (e) => {
+  const onWindowMessage = (e) => {
     if (e.source !== iframe.contentWindow || !e.data || !e.data.md) return;
     onMessage?.(e.data);
-  });
+  };
+  window.addEventListener("message", onWindowMessage);
 
   return {
     iframe,
@@ -54,6 +56,11 @@ export function mountDeck(container, { id, role, interactive, onMessage }) {
     },
     reload() {
       iframe.src = iframe.src;
+    },
+    destroy() {
+      resizeObserver.disconnect();
+      window.removeEventListener("message", onWindowMessage);
+      stage.remove();
     },
   };
 }

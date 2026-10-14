@@ -16,6 +16,15 @@
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 6px; }
   #preview { aspect-ratio: 16 / 9; border-radius: 6px; border: 1px solid var(--line); }
   #previewNote { font-size: 13px; }
+  #thumbs {
+    position: relative; display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity;
+    padding: 4px 2px 8px; scrollbar-width: thin;
+  }
+  .thumb { flex: 0 0 132px; scroll-snap-align: center; cursor: pointer; text-align: center; font-size: 12px; color: var(--muted); }
+  .thumb .frame { aspect-ratio: 16 / 9; border-radius: 4px; outline: 2px solid var(--line); margin-bottom: 4px; }
+  .thumb:hover .frame { outline-color: var(--muted); }
+  .thumb.current .frame { outline: 3px solid var(--accent); }
+  .thumb.current { color: var(--accent); font-weight: 700; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .nav button { flex: 1; font-size: 18px; }
   #counter { font-size: 28px; font-variant-numeric: tabular-nums; }
@@ -53,12 +62,25 @@
     <div id="previewNote" class="muted" hidden>Vorschau nur bei Präsentationen im mirrordeck-Format verfügbar.</div>
   </section>
 
+  <section id="thumbsSection" hidden>
+    <h2>Alle Folien</h2>
+    <div id="thumbs"></div>
+  </section>
+
   <section>
     <h2>Zuschauer-Link</h2>
     <input id="link" readonly>
     <div class="row" style="margin-top:8px">
       <button id="copyBtn">Kopieren</button>
       <a id="openLink" target="_blank" rel="noopener">öffnen</a>
+    </div>
+  </section>
+
+  <section>
+    <h2>Zeigen</h2>
+    <div class="row">
+      <button id="pointerBtn" title="Laserpointer an/aus (L)">🔴 Laserpointer</button>
+      <label class="muted" style="font-size:13px"><input type="checkbox" id="mirrorChk"> Hover &amp; Klicks spiegeln</label>
     </div>
   </section>
 
@@ -72,7 +94,7 @@
   </section>
 
   <p class="muted" style="font-size:12px;margin-top:auto">
-    <kbd>←</kbd> <kbd>→</kbd> <kbd>Leertaste</kbd> navigieren · <kbd>S</kbd> Seitenleiste · <kbd>F</kbd> Vollbild
+    <kbd>←</kbd> <kbd>→</kbd> <kbd>Leertaste</kbd> navigieren · <kbd>L</kbd> Laserpointer · <kbd>S</kbd> Seitenleiste · <kbd>F</kbd> Vollbild
   </p>
 </aside>
 
@@ -151,18 +173,32 @@
           renderCounter();
           restoreFromServer();
           updatePreview();
+          if (mode === "deck" && msg.total) buildThumbs(msg.total);
           break;
         case "state":
           current = msg.state;
           sync.send({ type: "state", state: msg.state });
           renderCounter();
           updatePreview();
+          highlightThumb();
           break;
         case "input":
           sync.send({ type: "input", input: msg.input });
           break;
         case "key":
           handleShortcut(msg.key);
+          break;
+        case "pointer":
+          if (!pointerOn) break;
+          gestureActive = true;
+          sync.send({ type: "pointer", data: msg.data });
+          main.send({ type: "pointer", data: msg.data });
+          break;
+        case "hover":
+        case "click":
+          if (!mirror) break;
+          gestureActive = true;
+          sync.send({ type: msg.type, data: msg.data });
           break;
       }
     },
@@ -178,6 +214,95 @@
       updatePreview();
     },
   });
+
+  // ---- laser pointer & gesture mirroring ----
+  let pointerOn = false;
+  const togglePointer = () => {
+    pointerOn = !pointerOn;
+    $("pointerBtn").classList.toggle("primary", pointerOn);
+    if (!pointerOn) {
+      sync.send({ type: "pointer", data: { hidden: true } });
+      main.send({ type: "pointer", data: { hidden: true } });
+    }
+  };
+  $("pointerBtn").onclick = togglePointer;
+
+  // Mouse events reaching this page mean the pointer is outside the deck iframe: clear gestures once.
+  let gestureActive = false;
+  document.addEventListener("mousemove", () => {
+    if (!gestureActive) return;
+    gestureActive = false;
+    sync.send({ type: "pointer", data: { hidden: true } });
+    sync.send({ type: "hover", data: null });
+    main.send({ type: "pointer", data: { hidden: true } });
+  });
+
+  let mirror = localStorage.getItem("mirrordeck:mirror") !== "off";
+  $("mirrorChk").checked = mirror;
+  $("mirrorChk").onchange = () => {
+    mirror = $("mirrorChk").checked;
+    localStorage.setItem("mirrordeck:mirror", mirror ? "on" : "off");
+    if (!mirror) sync.send({ type: "hover", data: null });
+  };
+
+  // ---- thumbnail carousel ----
+  // Thumbnails are live deck iframes; only those near the visible strip are mounted to keep CPU/memory low.
+  const thumbs = [];
+  function buildThumbs(total) {
+    if (thumbs.length) return;
+    const strip = $("thumbs");
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const t = thumbs[Number(entry.target.dataset.slide)];
+        if (entry.isIntersecting && !t.deck) {
+          t.deck = mountDeck(t.frame, {
+            id,
+            role: "preview",
+            interactive: false,
+            onMessage(msg) {
+              if (msg.type === "ready") t.deck.send({ type: "goto", slide: t.slide, step: Number.MAX_SAFE_INTEGER });
+            },
+          });
+        } else if (!entry.isIntersecting && t.deck) {
+          t.deck.destroy();
+          t.deck = null;
+        }
+      }
+    }, { root: strip, rootMargin: "0px 300px" });
+
+    for (let slide = 0; slide < total; slide++) {
+      const el = document.createElement("div");
+      el.className = "thumb";
+      el.dataset.slide = String(slide);
+      el.title = `Zu Folie ${slide + 1} springen`;
+      const frame = document.createElement("div");
+      frame.className = "frame";
+      el.append(frame, String(slide + 1));
+      el.onclick = () => main.send({ type: "goto", slide, step: 0 });
+      strip.append(el);
+      thumbs.push({ slide, el, frame, deck: null });
+      observer.observe(el);
+    }
+    strip.addEventListener("wheel", (e) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      strip.scrollLeft += e.deltaY;
+    }, { passive: false });
+    $("thumbsSection").hidden = false;
+    highlightThumb();
+  }
+
+  let highlighted = -1;
+  function highlightThumb() {
+    if (!thumbs.length || !current || current.kind !== "deck" || current.slide === highlighted) return;
+    thumbs[highlighted]?.el.classList.remove("current");
+    highlighted = current.slide;
+    const t = thumbs[highlighted];
+    if (!t) return;
+    t.el.classList.add("current");
+    const strip = $("thumbs");
+    strip.scrollTo({ left: t.el.offsetLeft - (strip.clientWidth - t.el.offsetWidth) / 2, behavior: "smooth" });
+  }
 
   // ---- fit toggle (presenter's own view) ----
   let fit = localStorage.getItem(`mirrordeck:pfit:${id}`) || meta.mode;
@@ -207,6 +332,7 @@
   function handleShortcut(k) {
     if (k === "s" || k === "S") toggleFocus();
     else if (k === "f" || k === "F") toggleFs();
+    else if (k === "l" || k === "L") togglePointer();
   }
 
   document.addEventListener("keydown", (e) => {
