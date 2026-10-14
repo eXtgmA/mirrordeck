@@ -44,8 +44,16 @@ function adminMeta(s: Session) {
 
 const NO_CACHE = { "cache-control": "no-cache" };
 
-function page(name: string): Response {
-  return new Response(Bun.file(join(PUBLIC_DIR, name)), { headers: NO_CACHE });
+// Content hash appended to asset URLs, so no browser or proxy cache can pair new pages with old assets.
+const ASSET_VERSION = Bun.hash(
+  (await Promise.all(["common.js", "style.css"].map((f) => Bun.file(join(PUBLIC_DIR, f)).text()))).join(""),
+).toString(36);
+
+async function page(name: string): Promise<Response> {
+  const html = (await Bun.file(join(PUBLIC_DIR, name)).text())
+    .replaceAll('"/common.js"', `"/common.js?v=${ASSET_VERSION}"`)
+    .replaceAll('"/style.css"', `"/style.css?v=${ASSET_VERSION}"`);
+  return new Response(html, { headers: { ...NO_CACHE, "content-type": "text/html; charset=utf-8" } });
 }
 
 function extractTitle(html: string, fallback: string): string {
