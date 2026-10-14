@@ -31,6 +31,8 @@ Hinter einem Reverse-Proxy muss WebSocket-Upgrade für `/ws/*` erlaubt sein.
 
 Die Prompt-Vorlage in [PROMPT.md](PROMPT.md) an den LLM-Prompt anhängen. Referenz: [examples/beispiel.html](examples/beispiel.html).
 
+**Interaktive Elemente:** Mit `data-interactive` markierte Elemente können auch Zuschauer bedienen (z. B. Quiz, `<details>`, Links in neuem Tab). Die Interaktion bleibt lokal beim jeweiligen Zuschauer und löst keine Navigation aus; Folie und Schritt bleiben synchron.
+
 **Sync-Modi** (automatisch erkannt):
 - **mirrordeck-Format** (`window.deck` vorhanden): Folie + Schritt werden synchronisiert. Zuverlässig, inkl. Vorschau und Nachzüglern.
 - **Fallback** (beliebige HTML): URL-Raute, Scrollposition und Navigationstasten werden übertragen und bei Zuschauern nachgespielt. Erzwingt 16:9, keine Vorschau. Ein Neuladen der Präsentator-Seite setzt alle Zuschauer zurück.
@@ -40,7 +42,7 @@ Die Prompt-Vorlage in [PROMPT.md](PROMPT.md) an den LLM-Prompt anhängen. Refere
 - `src/server.ts` – Bun-Server: Routen, Upload-API, WebSocket (Pub/Sub pro Präsentation; hunderte Zuschauer pro Container unproblematisch).
 - `src/store.ts` – Sessions im Speicher, persistiert nach `DATA_DIR`.
 - `public/bridge.js` – wird in jede Präsentation injiziert; erkennt den Modus, meldet/übernimmt Zustand per `postMessage`, sperrt Eingaben bei Zuschauern.
-- Decks laufen in `<iframe sandbox="allow-scripts">` plus `CSP: sandbox` (eigener, opaker Origin – kein Zugriff auf die App).
+- Decks laufen in `<iframe sandbox="allow-scripts allow-popups">` plus `CSP: sandbox` (eigener, opaker Origin – kein Zugriff auf die App).
 
 ## Später (TODO)
 
@@ -49,6 +51,7 @@ Die Prompt-Vorlage in [PROMPT.md](PROMPT.md) an den LLM-Prompt anhängen. Refere
 - Mehrere Nutzer / Login
 - Ablaufdatum für Sessions, Passwortschutz für Zuschauer-Links
 - Video-Sync
+- `data-interactive="shared"`: Klicks des Präsentators in interaktiven Elementen an alle übertragen
 - Horizontale Skalierung (Redis Pub/Sub)
 
 ## CI

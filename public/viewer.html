@@ -66,8 +66,9 @@
   const deck = mountDeck(document.getElementById("frame"), {
     id,
     role: "viewer",
-    interactive: false,
+    interactive: true, // the bridge blocks everything except [data-interactive]
     onMessage(msg) {
+      if (msg.type === "activity") showHud();
       if (msg.type !== "ready") return;
       bridgeReady = true;
       // Fallback mode relies on identical layout, so the fixed ratio is enforced.
@@ -118,11 +119,12 @@
 
   // Show controls briefly on mouse movement.
   let hudTimer;
-  document.addEventListener("mousemove", () => {
+  function showHud() {
     document.body.classList.add("hud");
     clearTimeout(hudTimer);
     hudTimer = setTimeout(() => document.body.classList.remove("hud"), 2000);
-  });
+  }
+  document.addEventListener("mousemove", showHud);
 </script>
 </body>
 </html>

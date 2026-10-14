@@ -84,7 +84,7 @@ const server = Bun.serve({
         headers: {
           "content-type": "text/html; charset=utf-8",
           // Even if opened directly, the deck runs in an opaque origin without access to the app.
-          "content-security-policy": "sandbox allow-scripts",
+          "content-security-policy": "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox",
           "cache-control": "no-store",
         },
       });

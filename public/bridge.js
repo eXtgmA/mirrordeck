@@ -22,17 +22,46 @@
 
   const post = (msg) => parent.postMessage({ md: true, ...msg }, "*");
 
-  // ---------- input lock for viewers ----------
-  if (locked) {
-    const block = (e) => {
+  // ---------- input handling ----------
+  // Elements marked [data-interactive] stay usable for everyone (viewers act locally).
+  // Their events are contained: they never bubble up to the deck's own navigation handlers.
+  const INPUT_EVENTS = ["keydown", "keyup", "keypress", "click", "dblclick", "mousedown", "mouseup",
+    "pointerdown", "pointerup", "touchstart", "touchend", "wheel", "contextmenu"];
+  const interactiveOf = (e) => (e.target instanceof Element ? e.target.closest("[data-interactive]") : null);
+  const stopAtBoundary = (e) => e.stopPropagation();
+  const viewerLocal = role === "viewer";
+
+  for (const type of INPUT_EVENTS) {
+    window.addEventListener(type, (e) => {
       if (replaying) return;
-      e.stopImmediatePropagation();
-      e.preventDefault();
-    };
-    for (const type of ["keydown", "keyup", "keypress", "click", "dblclick", "mousedown", "mouseup",
-      "pointerdown", "pointerup", "touchstart", "touchend", "wheel", "contextmenu"]) {
-      window.addEventListener(type, block, { capture: true, passive: false });
-    }
+      const zone = role !== "preview" && interactiveOf(e);
+      if (zone) {
+        zone.addEventListener(type, stopAtBoundary, { once: true });
+        return;
+      }
+      if (locked) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    }, { capture: true, passive: false });
+  }
+
+  if (viewerLocal) {
+    // Let the viewer page show its controls on mouse movement (the iframe swallows those events).
+    let last = 0;
+    window.addEventListener("mousemove", () => {
+      const now = Date.now();
+      if (now - last > 500) { last = now; post({ type: "activity" }); }
+    }, { passive: true });
+  }
+
+  if (locked) {
+    const style = document.createElement("style");
+    style.textContent = `html, body, body * { cursor: default !important; }
+      [data-interactive] :is(a, button, summary, label, select, [role=button], input[type=checkbox], input[type=radio]),
+      [data-interactive]:is(a, button, summary, label, [role=button]) { cursor: pointer !important; }
+      [data-interactive] :is(input:not([type=checkbox]):not([type=radio]), textarea) { cursor: text !important; }`;
+    document.documentElement.append(style);
   }
 
   // ---------- helpers ----------
@@ -120,7 +149,7 @@
     } else {
       // Forward navigation keys typed inside the deck (fallback replay for viewers).
       window.addEventListener("keydown", (e) => {
-        if (NAV_KEYS.has(e.key) && !e.repeat) post({ type: "input", input: { key: e.key } });
+        if (NAV_KEYS.has(e.key) && !e.repeat && !interactiveOf(e)) post({ type: "input", input: { key: e.key } });
       }, true);
       window.addEventListener("hashchange", report);
       let t = null;

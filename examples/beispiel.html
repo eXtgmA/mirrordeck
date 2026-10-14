@@ -23,6 +23,9 @@
   .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22vw), 1fr)); gap: 3vmin; }
   .box { background: #fff; border: 2px solid #eee; border-radius: 2vmin; padding: 3vmin; }
   .progress { position: fixed; left: 0; bottom: 0; height: .6vh; background: var(--accent); transition: width .3s; }
+  .quiz button { font: inherit; font-size: clamp(14px, 2.6vmin, 40px); padding: .3em 1em; margin-right: .5em;
+    border: 2px solid var(--accent); background: #fff; border-radius: 1vmin; }
+  summary { font-size: clamp(16px, 3.2vmin, 48px); }
 </style>
 </head>
 <body>
@@ -46,6 +49,26 @@
   <div class="cols">
     <div class="box"><p><strong>16:9 fest</strong><br>Alle sehen exakt dasselbe Bild.</p></div>
     <div class="box" data-step="1"><p><strong>Angepasst</strong><br>Das Layout fließt in jeden Bildschirm.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>Selbst ausprobieren</h2>
+  <p>Diese Elemente können auch Zuschauer anklicken – jeder für sich:</p>
+  <div class="cols">
+    <details class="box" data-interactive>
+      <summary><strong>Details aufklappen</strong></summary>
+      <p>Nur bei dir sichtbar – die Folie bleibt synchron.</p>
+    </details>
+    <div class="box quiz" data-interactive>
+      <p><strong>Quiz:</strong> Wie viele Links gibt es?</p>
+      <p>
+        <button type="button" data-answer="falsch">1</button>
+        <button type="button" data-answer="richtig ✓">2</button>
+        <button type="button" data-answer="falsch">3</button>
+      </p>
+      <p class="result"></p>
+    </div>
   </div>
 </section>
 
@@ -95,6 +118,9 @@
     else if (e.key === "End") goTo(slides.length - 1);
   });
   document.addEventListener("click", (e) => { if (!e.target.closest("a,button,input")) next(); });
+
+  document.querySelectorAll(".quiz button").forEach((b) =>
+    b.addEventListener("click", () => (b.closest(".quiz").querySelector(".result").textContent = b.dataset.answer)));
 
   const m = /^#\/(\d+)(?:\/(\d+))?/.exec(location.hash);
   goTo(m ? +m[1] : 0, m && m[2] ? +m[2] : 0);

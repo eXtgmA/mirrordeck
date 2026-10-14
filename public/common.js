@@ -11,7 +11,7 @@ export function mountDeck(container, { id, role, interactive, onMessage }) {
   const stage = document.createElement("div");
   stage.className = "stage";
   const iframe = document.createElement("iframe");
-  iframe.setAttribute("sandbox", "allow-scripts");
+  iframe.setAttribute("sandbox", "allow-scripts allow-popups allow-popups-to-escape-sandbox");
   iframe.setAttribute("title", "Präsentation");
   iframe.src = `/raw/${encodeURIComponent(id)}?role=${role}`;
   stage.append(iframe);

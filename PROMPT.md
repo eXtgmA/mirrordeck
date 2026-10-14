@@ -26,5 +26,9 @@ Erstelle die Präsentation als **eine einzige, eigenständige HTML-Datei** und h
 8. **Responsiv**: Gestaltet für 16:9 (1920×1080), aber ohne feste Pixelmaße für das Layout: `vw`/`vh`/`vmin` und `clamp()` für Schriften und Abstände, flexible Grids. Kein Scrollen innerhalb der Seite (`overflow: hidden` auf `body`).
 9. **Kein** `alert`, `localStorage`, `fetch`, Popups oder Navigation zu anderen Seiten (die Datei läuft in einer Sandbox).
 10. Die URL-Raute darf optional `#/slide/step` spiegeln; `history.replaceState` dann in `try/catch` kapseln.
+11. **Interaktive Elemente für Zuschauer**: Elemente, die jeder Zuschauer selbst bedienen darf (Quiz, `<details>`, Tabs, Tooltips, Links), mit dem Attribut `data-interactive` markieren. Alles andere ist für Zuschauer gesperrt. Regeln:
+    - Interaktionen darin wirken nur lokal und dürfen **nie** `goTo/next/prev` auslösen oder Folie/Schritt ändern.
+    - Klicks und Tasten darin erreichen die globale Navigation nicht (mirrordeck stoppt sie am Element) – trotzdem keine Navigation darauf aufbauen.
+    - Links mit `target="_blank" rel="noopener"`. Keine `<form>`-Submits (Eingabefelder sind ok, Auswertung per JavaScript).
 
 Eine Referenzimplementierung liegt in `examples/beispiel.html`.
