@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mirrordeck – Beispiel</title>
+<style>
+  :root { --accent: #e20074; --fg: #1b1c22; --bg: #fafafa; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .slide { position: absolute; inset: 0; display: none; flex-direction: column; justify-content: center;
+    padding: 6vh 7vw; gap: 3vh; }
+  .slide.active { display: flex; }
+  h1 { font-size: clamp(32px, 7vmin, 120px); margin: 0; line-height: 1.05; }
+  h2 { font-size: clamp(24px, 5vmin, 80px); margin: 0; color: var(--accent); }
+  p, li { font-size: clamp(16px, 3.2vmin, 48px); line-height: 1.4; margin: 0; }
+  ul { margin: 0; padding-left: 1.2em; display: grid; gap: 1.5vh; }
+  [data-step] { opacity: 0; transform: translateY(1vh); transition: opacity .35s, transform .35s; }
+  [data-step].shown { opacity: 1; transform: none; }
+  .title { background: var(--fg); color: #fff; }
+  .title h1 span { color: var(--accent); }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22vw), 1fr)); gap: 3vmin; }
+  .box { background: #fff; border: 2px solid #eee; border-radius: 2vmin; padding: 3vmin; }
+  .progress { position: fixed; left: 0; bottom: 0; height: .6vh; background: var(--accent); transition: width .3s; }
+</style>
+</head>
+<body>
+
+<section class="slide title">
+  <h1>mirror<span>deck</span></h1>
+  <p>Beispielpräsentation im mirrordeck-Format</p>
+</section>
+
+<section class="slide">
+  <h2>Wie es funktioniert</h2>
+  <ul>
+    <li data-step="1">Du lädst eine HTML-Datei hoch</li>
+    <li data-step="2">Du navigierst im Präsentator-Link</li>
+    <li data-step="3">Alle Zuschauer sehen live dasselbe</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h2>Zwei Ansichten</h2>
+  <div class="cols">
+    <div class="box"><p><strong>16:9 fest</strong><br>Alle sehen exakt dasselbe Bild.</p></div>
+    <div class="box" data-step="1"><p><strong>Angepasst</strong><br>Das Layout fließt in jeden Bildschirm.</p></div>
+  </div>
+</section>
+
+<section class="slide title">
+  <h1>Danke!</h1>
+  <p>Fragen?</p>
+</section>
+
+<div class="progress"></div>
+
+<script>
+(() => {
+  const slides = [...document.querySelectorAll(".slide")];
+  const stepsOf = (i) => Math.max(0, ...[...slides[i].querySelectorAll("[data-step]")].map((e) => +e.dataset.step));
+  let slide = 0, step = 0;
+
+  function render() {
+    slides.forEach((s, i) => s.classList.toggle("active", i === slide));
+    slides[slide].querySelectorAll("[data-step]").forEach((e) => e.classList.toggle("shown", +e.dataset.step <= step));
+    document.querySelector(".progress").style.width = `${((slide + 1) / slides.length) * 100}%`;
+    try { history.replaceState(null, "", `#/${slide}/${step}`); } catch { /* sandboxed */ }
+    window.dispatchEvent(new CustomEvent("deckchange", { detail: { slide, step } }));
+  }
+
+  function goTo(s, st = 0) {
+    slide = Math.min(Math.max(0, s | 0), slides.length - 1);
+    step = Math.min(Math.max(0, st | 0), stepsOf(slide));
+    render();
+  }
+
+  function next() {
+    if (step < stepsOf(slide)) goTo(slide, step + 1);
+    else if (slide < slides.length - 1) goTo(slide + 1, 0);
+  }
+
+  function prev() {
+    if (step > 0) goTo(slide, step - 1);
+    else if (slide > 0) goTo(slide - 1, stepsOf(slide - 1));
+  }
+
+  window.deck = { goTo, next, prev, getState: () => ({ slide, step }), total: slides.length };
+
+  document.addEventListener("keydown", (e) => {
+    if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); next(); }
+    else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); prev(); }
+    else if (e.key === "Home") goTo(0);
+    else if (e.key === "End") goTo(slides.length - 1);
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest("a,button,input")) next(); });
+
+  const m = /^#\/(\d+)(?:\/(\d+))?/.exec(location.hash);
+  goTo(m ? +m[1] : 0, m && m[2] ? +m[2] : 0);
+})();
+</script>
+</body>
+</html>

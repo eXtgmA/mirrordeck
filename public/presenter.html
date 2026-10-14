@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Präsentator · mirrordeck</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { display: grid; grid-template-columns: 1fr 340px; height: 100vh; }
+  #main { height: 100vh; }
+  aside {
+    display: flex; flex-direction: column; gap: 14px; padding: 16px;
+    background: var(--panel); border-left: 1px solid var(--line); overflow: auto;
+  }
+  h1 { font-size: 16px; margin: 0; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 6px; }
+  #preview { aspect-ratio: 16 / 9; border-radius: 6px; border: 1px solid var(--line); }
+  #previewNote { font-size: 13px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .nav button { flex: 1; font-size: 18px; }
+  #counter { font-size: 28px; font-variant-numeric: tabular-nums; }
+  #link { width: 100%; font-size: 13px; }
+  #error { color: #f66; display: none; }
+  kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+  body.focus { grid-template-columns: 1fr 0; }
+  body.focus aside { display: none; }
+</style>
+</head>
+<body>
+<div id="main" class="frame"></div>
+<aside>
+  <h1 id="title">…</h1>
+  <div id="error"></div>
+  <div class="row">
+    <span class="pill"><span id="dot" class="dot"></span><span id="status">verbinde…</span></span>
+    <span class="pill">👥 <span id="viewers">0</span></span>
+    <span class="pill" id="modePill" title="Erkannter Sync-Modus">…</span>
+  </div>
+
+  <section>
+    <h2>Aktuell</h2>
+    <div id="counter">–</div>
+  </section>
+
+  <div class="row nav">
+    <button id="prevBtn" title="Zurück (←)">←</button>
+    <button id="nextBtn" class="primary" title="Weiter (→ / Leertaste)">→</button>
+  </div>
+
+  <section>
+    <h2>Nächste Folie</h2>
+    <div id="preview" class="frame"></div>
+    <div id="previewNote" class="muted" hidden>Vorschau nur bei Präsentationen im mirrordeck-Format verfügbar.</div>
+  </section>
+
+  <section>
+    <h2>Zuschauer-Link</h2>
+    <input id="link" readonly>
+    <div class="row" style="margin-top:8px">
+      <button id="copyBtn">Kopieren</button>
+      <a id="openLink" target="_blank" rel="noopener">öffnen</a>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ansicht</h2>
+    <div class="row">
+      <button id="fitBtn"></button>
+      <button id="focusBtn" title="Seitenleiste aus/ein (S)">Seitenleiste</button>
+      <button id="fsBtn" title="Vollbild (F)">Vollbild</button>
+    </div>
+  </section>
+
+  <p class="muted" style="font-size:12px;margin-top:auto">
+    <kbd>←</kbd> <kbd>→</kbd> <kbd>Leertaste</kbd> navigieren · <kbd>S</kbd> Seitenleiste · <kbd>F</kbd> Vollbild
+  </p>
+</aside>
+
+<script type="module">
+  import { mountDeck, connect, deckId } from "/common.js";
+
+  const id = deckId();
+  const key = new URLSearchParams(location.search).get("key") || "";
+  const $ = (s) => document.getElementById(s);
+  const showError = (t) => { $("error").textContent = t; $("error").style.display = "block"; };
+
+  const meta = await fetch(`/api/decks/${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : null));
+  if (!meta) { showError("Präsentation nicht gefunden."); throw new Error("not found"); }
+  $("title").textContent = meta.title;
+  document.title = `▶ ${meta.title} · mirrordeck`;
+
+  const viewerUrl = `${location.origin}/v/${encodeURIComponent(id)}`;
+  $("link").value = viewerUrl;
+  $("openLink").href = viewerUrl;
+  $("copyBtn").onclick = async () => {
+    await navigator.clipboard.writeText(viewerUrl);
+    $("copyBtn").textContent = "Kopiert ✓";
+    setTimeout(() => ($("copyBtn").textContent = "Kopieren"), 1500);
+  };
+
+  // ---- state ----
+  let mode = null;          // "deck" | "events"
+  let mainReady = false;
+  let previewReady = false;
+  let current = null;       // last state from the main deck
+  let serverInit = null;    // init payload from server (for restoring after reload)
+  let restored = false;
+
+  const renderCounter = () => {
+    if (!current) return;
+    if (current.kind === "deck") {
+      const total = current.total ? ` / ${current.total}` : "";
+      $("counter").textContent = `Folie ${current.slide + 1}${total}` + (current.step ? ` · Schritt ${current.step}` : "");
+    } else {
+      $("counter").textContent = current.hash || "—";
+    }
+  };
+
+  const updatePreview = () => {
+    if (mode !== "deck" || !previewReady || !current) return;
+    preview.send({ type: "apply", state: current });
+    preview.send({ type: "next" });
+  };
+
+  const restoreFromServer = () => {
+    if (!mainReady || !serverInit) return;
+    if (mode === "deck") {
+      if (serverInit.state && serverInit.state.kind === "deck") main.send({ type: "apply", state: serverInit.state });
+    } else {
+      // Fallback mode cannot reproduce history reliably: start clean for everyone.
+      sync.send({ type: "reset" });
+    }
+    serverInit = null;
+    restored = true;
+  };
+
+  // ---- frames ----
+  const main = mountDeck($("main"), {
+    id,
+    role: "presenter",
+    interactive: true,
+    onMessage(msg) {
+      switch (msg.type) {
+        case "ready":
+          mode = msg.mode;
+          mainReady = true;
+          $("modePill").textContent = mode === "deck" ? "mirrordeck-Format" : "Fallback-Modus";
+          $("preview").hidden = mode !== "deck";
+          $("previewNote").hidden = mode === "deck";
+          current = msg.state;
+          renderCounter();
+          restoreFromServer();
+          updatePreview();
+          break;
+        case "state":
+          current = msg.state;
+          sync.send({ type: "state", state: msg.state });
+          renderCounter();
+          updatePreview();
+          break;
+        case "input":
+          sync.send({ type: "input", input: msg.input });
+          break;
+        case "key":
+          handleShortcut(msg.key);
+          break;
+      }
+    },
+  });
+
+  const preview = mountDeck($("preview"), {
+    id,
+    role: "preview",
+    interactive: false,
+    onMessage(msg) {
+      if (msg.type !== "ready") return;
+      previewReady = true;
+      updatePreview();
+    },
+  });
+
+  // ---- fit toggle (presenter's own view) ----
+  let fit = localStorage.getItem(`mirrordeck:pfit:${id}`) || meta.mode;
+  const renderFit = () => {
+    $("fitBtn").textContent = fit === "fit" ? "16:9" : "Vollfläche";
+    main.setFit(fit);
+  };
+  $("fitBtn").onclick = () => {
+    fit = fit === "fit" ? "fill" : "fit";
+    localStorage.setItem(`mirrordeck:pfit:${id}`, fit);
+    renderFit();
+  };
+  renderFit();
+
+  // ---- navigation ----
+  const next = () => main.send({ type: "next" });
+  const prev = () => main.send({ type: "prev" });
+  $("nextBtn").onclick = next;
+  $("prevBtn").onclick = prev;
+  const toggleFocus = () => document.body.classList.toggle("focus");
+  const toggleFs = () =>
+    document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  $("focusBtn").onclick = toggleFocus;
+  $("fsBtn").onclick = toggleFs;
+
+  // Shortcuts that work no matter whether the deck iframe or the page has focus.
+  function handleShortcut(k) {
+    if (k === "s" || k === "S") toggleFocus();
+    else if (k === "f" || k === "F") toggleFs();
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.target instanceof HTMLInputElement || e.repeat) return;
+    if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); next(); }
+    else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) { e.preventDefault(); prev(); }
+    else handleShortcut(e.key);
+  });
+  // Buttons should not keep focus (space would re-trigger them).
+  document.addEventListener("click", (e) => { if (e.target instanceof HTMLButtonElement) e.target.blur(); });
+
+  // ---- server ----
+  const sync = connect(id, key, {
+    onStatus(on) {
+      $("dot").classList.toggle("on", on);
+      $("status").textContent = on ? "live" : "getrennt";
+      if (on && current && mode === "deck") sync.send({ type: "state", state: current });
+    },
+    onFatal() {
+      showError("Keine Verbindung – ist der Präsentator-Link (key) korrekt?");
+    },
+    onMessage(msg) {
+      if (msg.type === "init") {
+        if (msg.role !== "presenter") { showError("Ungültiger Präsentator-Schlüssel."); return; }
+        if (restored) return; // reconnect: our live state is authoritative
+        serverInit = msg;
+        restoreFromServer();
+      } else if (msg.type === "viewers") {
+        $("viewers").textContent = msg.count;
+      }
+    },
+  });
+</script>
+</body>
+</html>

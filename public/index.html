@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mirrordeck</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px; }
+  h1 { margin: 0 0 4px; }
+  h1 span { color: var(--accent); }
+  form, .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-top: 20px; }
+  label { display: block; margin: 12px 0 4px; font-size: 14px; color: var(--muted); }
+  input[type=text], input[type=password], select { width: 100%; }
+  #drop {
+    border: 2px dashed var(--line); border-radius: 10px; padding: 28px; text-align: center; cursor: pointer;
+  }
+  #drop.over { border-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 8px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+  td.actions { text-align: right; white-space: nowrap; }
+  td.actions > * { margin-left: 6px; }
+  #msg { margin-top: 12px; }
+  .err { color: #f66; }
+</style>
+</head>
+<body>
+<main>
+  <h1>mirror<span>deck</span></h1>
+  <p class="muted">HTML-Präsentation hochladen, selbst navigieren – Zuschauer sehen live mit.</p>
+
+  <form id="upload">
+    <label for="token">Admin-Token</label>
+    <input id="token" type="password" autocomplete="current-password" required>
+
+    <label>Präsentation (.html)</label>
+    <div id="drop">Datei hierher ziehen oder klicken<br><span id="fileName" class="muted"></span></div>
+    <input id="file" type="file" accept=".html,.htm,text/html" hidden>
+
+    <label for="title">Titel (optional, sonst aus &lt;title&gt;)</label>
+    <input id="title" type="text">
+
+    <label for="mode">Standard-Seitenverhältnis für Zuschauer</label>
+    <select id="mode">
+      <option value="fit">Fest 16:9 (alle sehen dasselbe Bild)</option>
+      <option value="fill">An Bildschirm anpassen (Präsentation muss responsiv sein)</option>
+    </select>
+
+    <div style="margin-top:16px"><button class="primary" type="submit">Hochladen</button></div>
+    <div id="msg"></div>
+  </form>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <strong>Meine Präsentationen</strong>
+      <button id="refresh" type="button">Aktualisieren</button>
+    </div>
+    <table><tbody id="list"><tr><td class="muted">Token eingeben, um die Liste zu laden.</td></tr></tbody></table>
+  </div>
+</main>
+
+<script type="module">
+  const $ = (s) => document.getElementById(s);
+  const tokenInput = $("token");
+  tokenInput.value = localStorage.getItem("mirrordeck:token") || "";
+  const auth = () => ({ authorization: `Bearer ${tokenInput.value}` });
+  tokenInput.addEventListener("change", () => {
+    localStorage.setItem("mirrordeck:token", tokenInput.value);
+    loadList();
+  });
+
+  // ---- file picking ----
+  let file = null;
+  const setFile = (f) => { file = f; $("fileName").textContent = f ? f.name : ""; };
+  $("drop").onclick = () => $("file").click();
+  $("file").onchange = () => setFile($("file").files[0] || null);
+  $("drop").ondragover = (e) => { e.preventDefault(); $("drop").classList.add("over"); };
+  $("drop").ondragleave = () => $("drop").classList.remove("over");
+  $("drop").ondrop = (e) => {
+    e.preventDefault();
+    $("drop").classList.remove("over");
+    setFile(e.dataTransfer.files[0] || null);
+  };
+
+  const links = (d) => ({
+    presenter: `${location.origin}/p/${d.id}?key=${d.key}`,
+    viewer: `${location.origin}/v/${d.id}`,
+  });
+
+  // ---- upload ----
+  $("upload").onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = $("msg");
+    if (!file) { msg.innerHTML = `<span class="err">Bitte eine HTML-Datei wählen.</span>`; return; }
+    localStorage.setItem("mirrordeck:token", tokenInput.value);
+    const body = new FormData();
+    body.append("file", file);
+    body.append("title", $("title").value);
+    body.append("mode", $("mode").value);
+    const res = await fetch("/api/decks", { method: "POST", headers: auth(), body });
+    if (!res.ok) {
+      msg.innerHTML = `<span class="err">Fehler: ${res.status === 401 ? "Token ungültig" : res.statusText}</span>`;
+      return;
+    }
+    const d = await res.json();
+    const l = links(d);
+    msg.innerHTML = "";
+    const p = document.createElement("p");
+    p.innerHTML = `✓ Hochgeladen. <a target="_blank">Präsentieren</a> · Zuschauer-Link: <code></code>`;
+    p.querySelector("a").href = l.presenter;
+    p.querySelector("code").textContent = l.viewer;
+    msg.append(p);
+    setFile(null);
+    $("title").value = "";
+    loadList();
+  };
+
+  // ---- list ----
+  async function loadList() {
+    const list = $("list");
+    if (!tokenInput.value) return;
+    const res = await fetch("/api/decks", { headers: auth() });
+    if (!res.ok) { list.innerHTML = `<tr><td class="err">Token ungültig.</td></tr>`; return; }
+    const decks = await res.json();
+    list.innerHTML = decks.length ? "" : `<tr><td class="muted">Noch keine Präsentationen.</td></tr>`;
+    for (const d of decks) {
+      const l = links(d);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><div class="t"></div><div class="muted" style="font-size:12px"></div></td>
+        <td class="actions"><a target="_blank" class="p">Präsentieren</a><button class="c">Zuschauer-Link</button><button class="x">Löschen</button></td>`;
+      tr.querySelector(".t").textContent = d.title;
+      tr.querySelector(".muted").textContent =
+        `${new Date(d.createdAt).toLocaleString("de-DE")} · ${d.viewers} Zuschauer · ${d.mode === "fit" ? "16:9" : "angepasst"}`;
+      tr.querySelector(".p").href = l.presenter;
+      tr.querySelector(".c").onclick = async (e) => {
+        await navigator.clipboard.writeText(l.viewer);
+        e.target.textContent = "Kopiert ✓";
+      };
+      tr.querySelector(".x").onclick = async () => {
+        if (!confirm(`„${d.title}“ löschen?`)) return;
+        await fetch(`/api/decks/${d.id}`, { method: "DELETE", headers: auth() });
+        loadList();
+      };
+      list.append(tr);
+    }
+  }
+  $("refresh").onclick = loadList;
+  loadList();
+</script>
+</body>
+</html>

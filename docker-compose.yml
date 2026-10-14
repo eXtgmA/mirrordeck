@@ -1,0 +1,14 @@
+services:
+  mirrordeck:
+    build: .
+    image: mirrordeck:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN must be set}
+    volumes:
+      - mirrordeck-data:/data
+
+volumes:
+  mirrordeck-data:

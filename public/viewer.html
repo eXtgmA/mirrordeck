@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mirrordeck</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  #frame { position: fixed; inset: 0; }
+  #hud {
+    position: fixed; right: 16px; bottom: 16px; display: flex; gap: 8px; align-items: center;
+    opacity: 0; transition: opacity .25s; z-index: 2;
+  }
+  body.hud #hud, #hud:hover { opacity: 1; }
+  #notice {
+    position: fixed; inset: 0; display: none; place-items: center; text-align: center;
+    background: rgba(14,15,19,.92); z-index: 3; font-size: 20px;
+  }
+  #notice.show { display: grid; }
+</style>
+</head>
+<body>
+<div id="frame" class="frame"></div>
+<div id="hud">
+  <span class="pill"><span id="dot" class="dot"></span><span id="status">verbinde…</span></span>
+  <button id="fitBtn" title="Seitenverhältnis umschalten"></button>
+  <button id="fsBtn" title="Vollbild">⛶</button>
+</div>
+<div id="notice"></div>
+
+<script type="module">
+  import { mountDeck, connect, deckId } from "/common.js";
+
+  const id = deckId();
+  const meta = await fetch(`/api/decks/${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : null));
+  const notice = document.getElementById("notice");
+  const showNotice = (text) => { notice.textContent = text; notice.classList.add("show"); };
+  if (!meta) {
+    showNotice("Diese Präsentation existiert nicht (mehr).");
+    throw new Error("not found");
+  }
+  document.title = `${meta.title} · mirrordeck`;
+
+  // ---- fit mode (default from upload, overridable per viewer) ----
+  const fitKey = `mirrordeck:fit:${id}`;
+  let fit = localStorage.getItem(fitKey) || meta.mode;
+  let fitLocked = false;
+  const fitBtn = document.getElementById("fitBtn");
+  const renderFit = () => {
+    fitBtn.textContent = fit === "fit" ? "16:9" : "Vollfläche";
+    fitBtn.disabled = fitLocked;
+    deck.setFit(fitLocked ? "fit" : fit);
+  };
+  fitBtn.onclick = () => {
+    fit = fit === "fit" ? "fill" : "fit";
+    localStorage.setItem(fitKey, fit);
+    renderFit();
+  };
+  document.getElementById("fsBtn").onclick = () =>
+    document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+
+  // ---- deck + sync ----
+  let bridgeReady = false;
+  let latest = { state: null, inputs: [] };
+
+  const deck = mountDeck(document.getElementById("frame"), {
+    id,
+    role: "viewer",
+    interactive: false,
+    onMessage(msg) {
+      if (msg.type !== "ready") return;
+      bridgeReady = true;
+      // Fallback mode relies on identical layout, so the fixed ratio is enforced.
+      fitLocked = msg.mode === "events";
+      renderFit();
+      deck.send({ type: "replay", inputs: latest.inputs, state: latest.state });
+    },
+  });
+  renderFit();
+
+  const dot = document.getElementById("dot");
+  const status = document.getElementById("status");
+
+  connect(id, null, {
+    onStatus(on) {
+      dot.classList.toggle("on", on);
+      status.textContent = on ? "live" : "getrennt – verbinde neu…";
+    },
+    onMessage(msg) {
+      switch (msg.type) {
+        case "init":
+          latest = { state: msg.state, inputs: msg.inputs || [] };
+          if (bridgeReady) {
+            // Reconnect: easiest consistent resync is a fresh deck.
+            bridgeReady = false;
+            deck.reload();
+          }
+          break;
+        case "state":
+          latest.state = msg.state;
+          if (bridgeReady) deck.send({ type: "apply", state: msg.state });
+          break;
+        case "input":
+          latest.inputs.push(msg.input);
+          if (bridgeReady) deck.send({ type: "input", input: msg.input });
+          break;
+        case "reload":
+          latest = { state: null, inputs: [] };
+          bridgeReady = false;
+          deck.reload();
+          break;
+        case "ended":
+          showNotice("Die Präsentation wurde beendet.");
+          break;
+      }
+    },
+  });
+
+  // Show controls briefly on mouse movement.
+  let hudTimer;
+  document.addEventListener("mousemove", () => {
+    document.body.classList.add("hud");
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(() => document.body.classList.remove("hud"), 2000);
+  });
+</script>
+</body>
+</html>
