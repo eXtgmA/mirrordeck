@@ -25,6 +25,18 @@
   .thumb:hover .frame { outline-color: var(--muted); }
   .thumb.current .frame { outline: 3px solid var(--accent); }
   .thumb.current { color: var(--accent); font-weight: 700; }
+  button.mini { font-size: 11px; padding: 3px 8px; text-transform: none; letter-spacing: 0; color: var(--text); }
+  #overview {
+    position: fixed; inset: 0; z-index: 10; background: var(--bg);
+    display: flex; flex-direction: column; padding: 20px 28px;
+  }
+  #overview[hidden] { display: none; }
+  #overview header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  #overviewGrid {
+    flex: 1; overflow: auto; display: grid; gap: 18px; align-content: start; padding: 4px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+  #overviewGrid .thumb { font-size: 14px; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .nav button { flex: 1; font-size: 18px; }
   #counter { font-size: 28px; font-variant-numeric: tabular-nums; }
@@ -63,7 +75,8 @@
   </section>
 
   <section id="thumbsSection" hidden>
-    <h2>Alle Folien</h2>
+    <h2 style="display:flex;justify-content:space-between;align-items:center">Alle Folien
+      <button id="overviewBtn" class="mini" title="Übersicht aller Folien (G)">▦ Übersicht</button></h2>
     <div id="thumbs"></div>
   </section>
 
@@ -94,9 +107,17 @@
   </section>
 
   <p class="muted" style="font-size:12px;margin-top:auto">
-    <kbd>←</kbd> <kbd>→</kbd> <kbd>Leertaste</kbd> navigieren · <kbd>L</kbd> Laserpointer · <kbd>S</kbd> Seitenleiste · <kbd>F</kbd> Vollbild
+    <kbd>←</kbd> <kbd>→</kbd> <kbd>Leertaste</kbd> navigieren · <kbd>G</kbd> Übersicht · <kbd>L</kbd> Laserpointer · <kbd>S</kbd> Seitenleiste · <kbd>F</kbd> Vollbild
   </p>
 </aside>
+
+<div id="overview" hidden>
+  <header>
+    <strong>Alle Folien</strong>
+    <button id="overviewClose" title="Schließen (Esc)">✕ Schließen</button>
+  </header>
+  <div id="overviewGrid"></div>
+</div>
 
 <script type="module">
   import { mountDeck, connect, deckId } from "/common.js";
@@ -245,15 +266,13 @@
     if (!mirror) sync.send({ type: "hover", data: null });
   };
 
-  // ---- thumbnail carousel ----
-  // Thumbnails are live deck iframes; only those near the visible strip are mounted to keep CPU/memory low.
-  const thumbs = [];
-  function buildThumbs(total) {
-    if (thumbs.length) return;
-    const strip = $("thumbs");
+  // ---- slide thumbnails (carousel + overview grid) ----
+  // Thumbnails are live deck iframes; only those near the visible area are mounted to keep CPU/memory low.
+  function createThumbs(container, total, rootMargin, onPick) {
+    const items = [];
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        const t = thumbs[Number(entry.target.dataset.slide)];
+        const t = items[Number(entry.target.dataset.slide)];
         if (entry.isIntersecting && !t.deck) {
           t.deck = mountDeck(t.frame, {
             id,
@@ -268,7 +287,7 @@
           t.deck = null;
         }
       }
-    }, { root: strip, rootMargin: "0px 300px" });
+    }, { root: container, rootMargin });
 
     for (let slide = 0; slide < total; slide++) {
       const el = document.createElement("div");
@@ -278,31 +297,71 @@
       const frame = document.createElement("div");
       frame.className = "frame";
       el.append(frame, String(slide + 1));
-      el.onclick = () => main.send({ type: "goto", slide, step: 0 });
-      strip.append(el);
-      thumbs.push({ slide, el, frame, deck: null });
+      el.onclick = () => {
+        main.send({ type: "goto", slide, step: 0 });
+        onPick?.();
+      };
+      container.append(el);
+      items.push({ slide, el, frame, deck: null });
       observer.observe(el);
     }
-    strip.addEventListener("wheel", (e) => {
+
+    return {
+      items,
+      highlight(slide) {
+        for (const t of items) t.el.classList.toggle("current", t.slide === slide);
+        return items[slide]?.el;
+      },
+      destroy() {
+        observer.disconnect();
+        for (const t of items) t.deck?.destroy();
+        container.replaceChildren();
+      },
+    };
+  }
+
+  let strip = null;
+  function buildThumbs(total) {
+    if (strip) return;
+    const container = $("thumbs");
+    strip = createThumbs(container, total, "0px 300px");
+    container.addEventListener("wheel", (e) => {
       if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       e.preventDefault();
-      strip.scrollLeft += e.deltaY;
+      container.scrollLeft += e.deltaY;
     }, { passive: false });
     $("thumbsSection").hidden = false;
-    highlightThumb();
+    highlightThumb(true);
   }
 
   let highlighted = -1;
-  function highlightThumb() {
-    if (!thumbs.length || !current || current.kind !== "deck" || current.slide === highlighted) return;
-    thumbs[highlighted]?.el.classList.remove("current");
+  function highlightThumb(force = false) {
+    if (!current || current.kind !== "deck" || (!force && current.slide === highlighted)) return;
     highlighted = current.slide;
-    const t = thumbs[highlighted];
-    if (!t) return;
-    t.el.classList.add("current");
-    const strip = $("thumbs");
-    strip.scrollTo({ left: t.el.offsetLeft - (strip.clientWidth - t.el.offsetWidth) / 2, behavior: "smooth" });
+    grid?.highlight(highlighted);
+    const el = strip?.highlight(highlighted);
+    if (!el) return;
+    const container = $("thumbs");
+    container.scrollTo({ left: el.offsetLeft - (container.clientWidth - el.offsetWidth) / 2, behavior: "smooth" });
   }
+
+  // Overview grid: all slides at once, opened from the carousel header (G / Esc).
+  let grid = null;
+  function openOverview() {
+    if (grid || !strip) return;
+    $("overview").hidden = false;
+    grid = createThumbs($("overviewGrid"), strip.items.length, "200px 0px", closeOverview);
+    grid.highlight(highlighted)?.scrollIntoView({ block: "center" });
+  }
+  function closeOverview() {
+    if (!grid) return;
+    grid.destroy();
+    grid = null;
+    $("overview").hidden = true;
+  }
+  const toggleOverview = () => (grid ? closeOverview() : openOverview());
+  $("overviewBtn").onclick = openOverview;
+  $("overviewClose").onclick = closeOverview;
 
   // ---- fit toggle (presenter's own view) ----
   let fit = localStorage.getItem(`mirrordeck:pfit:${id}`) || meta.mode;
@@ -333,6 +392,8 @@
     if (k === "s" || k === "S") toggleFocus();
     else if (k === "f" || k === "F") toggleFs();
     else if (k === "l" || k === "L") togglePointer();
+    else if (k === "g" || k === "G") toggleOverview();
+    else if (k === "Escape") closeOverview();
   }
 
   document.addEventListener("keydown", (e) => {
