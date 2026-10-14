@@ -8,10 +8,13 @@
 <style>
   #frame { position: fixed; inset: 0; }
   #hud {
-    position: fixed; right: 16px; bottom: 16px; display: flex; gap: 8px; align-items: center;
+    position: fixed; right: 12px; top: 12px; display: flex; gap: 8px; align-items: center;
     opacity: 0; transition: opacity .25s; z-index: 2;
+    /* Never steal clicks from the deck underneath unless the pointer is really on the controls. */
+    pointer-events: none;
   }
-  body.hud #hud, #hud:hover { opacity: 1; }
+  #hud.armed { pointer-events: auto; }
+  body.hud #hud, #hud.armed { opacity: 1; }
   #notice {
     position: fixed; inset: 0; display: none; place-items: center; text-align: center;
     background: rgba(14,15,19,.92); z-index: 3; font-size: 20px;
@@ -68,7 +71,11 @@
     role: "viewer",
     interactive: true, // the bridge blocks everything except [data-interactive]
     onMessage(msg) {
-      if (msg.type === "activity") showHud();
+      if (msg.type === "activity") {
+        const r = deck.iframe.getBoundingClientRect();
+        const scale = r.width / deck.iframe.offsetWidth;
+        onPointer(r.left + msg.x * scale, r.top + msg.y * scale);
+      }
       if (msg.type !== "ready") return;
       bridgeReady = true;
       // Fallback mode relies on identical layout, so the fixed ratio is enforced.
@@ -124,7 +131,14 @@
     clearTimeout(hudTimer);
     hudTimer = setTimeout(() => document.body.classList.remove("hud"), 2000);
   }
-  document.addEventListener("mousemove", showHud);
+  const hud = document.getElementById("hud");
+  function onPointer(x, y) {
+    showHud();
+    const r = hud.getBoundingClientRect();
+    hud.classList.toggle("armed", x >= r.left - 8 && x <= r.right + 8 && y >= r.top - 8 && y <= r.bottom + 8);
+  }
+  document.addEventListener("mousemove", (e) => onPointer(e.clientX, e.clientY));
+  hud.addEventListener("mouseleave", () => hud.classList.remove("armed"));
 </script>
 </body>
 </html>

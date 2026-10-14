@@ -49,9 +49,9 @@
   if (viewerLocal) {
     // Let the viewer page show its controls on mouse movement (the iframe swallows those events).
     let last = 0;
-    window.addEventListener("mousemove", () => {
+    window.addEventListener("mousemove", (e) => {
       const now = Date.now();
-      if (now - last > 500) { last = now; post({ type: "activity" }); }
+      if (now - last > 100) { last = now; post({ type: "activity", x: e.clientX, y: e.clientY }); }
     }, { passive: true });
   }
 
